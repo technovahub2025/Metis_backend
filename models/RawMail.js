@@ -60,11 +60,14 @@ const RawMailSchema = new mongoose.Schema(
     projectStage: {
       type: String,
       enum: [
-        "Planning",
-        "Design",
-        "Construction",
-        "Execution",
-        "Closure",
+        "Acknowledged",
+        "Model/Quote sent",
+        "Implementation",
+        "Dropped",
+        "Hold",
+        "In Discussion - Inhouse",
+        "In Discussion - Team",
+        "Completed",
       ],
     },
 

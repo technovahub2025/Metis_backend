@@ -19,7 +19,7 @@ const ProjectSchema = new mongoose.Schema(
         "RCC",
         "Steel",
         "Outsource",
-        "TMC",
+        "PMC",
       ],
       trim: true,
     },
@@ -35,20 +35,30 @@ const ProjectSchema = new mongoose.Schema(
 
     emailStage: {
       type: String,
-      enum: ["Sent", "Hold", "Draft", "Review"],
+      enum: [
+        "Sent to Client",
+        "Acknowledgement",
+        "In Discussion",
+        "Sent by IT",
+        "Hold",
+        "Waiting for IC/IT",
+      ],
       trim: true,
     },
 
     projectStage: {
       type: String,
       enum: [
-        "Planning",
-        "Design",
-        "Construction",
-        "Execution",
-        "Closure",
+        "Acknowledged",
+        "Model/Quote sent",
+        "Implementation",
+        "Dropped",
+        "Hold",
+        "In Discussion - Inhouse",
+        "In Discussion - Team",
+        "Completed",
       ],
-      default: "Planning",
+      default: "Acknowledged",
     },
 
     status: {
