@@ -911,6 +911,40 @@ router.put(
       };
 
       // --------------------------------------------------------
+      // RESOLVE PM ASSIGNMENT
+      // --------------------------------------------------------
+
+      if (Object.prototype.hasOwnProperty.call(update, "pm")) {
+        if (update.pm) {
+          const selectedPM = await findUserByIdOrEmail(
+            update.pm,
+            "pm"
+          );
+
+          if (!selectedPM) {
+            return res.status(400).json({
+              success: false,
+              message: "PM not found or inactive",
+            });
+          }
+
+          update.pmId = String(selectedPM._id);
+          update.pmEmail = selectedPM.email || "";
+          update.pmName = selectedPM.name || "";
+          update.pmInitials = createInitials(selectedPM.name);
+
+          delete update.pm;
+        } else {
+          update.pmId = "";
+          update.pmEmail = "";
+          update.pmName = "";
+          update.pmInitials = "";
+
+          delete update.pm;
+        }
+      }
+
+      // --------------------------------------------------------
       // PM RESTRICTIONS
       // --------------------------------------------------------
 
