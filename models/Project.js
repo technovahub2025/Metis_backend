@@ -1,3 +1,4 @@
+
 const mongoose = require("mongoose");
 
 const ProjectSchema = new mongoose.Schema(
@@ -15,12 +16,7 @@ const ProjectSchema = new mongoose.Schema(
 
     projectType: {
       type: String,
-      enum: [
-        "RCC",
-        "Steel",
-        "Outsource",
-        "PMC",
-      ],
+      enum: ["RCC", "Steel", "Outsource", "PMC"],
       trim: true,
     },
 
@@ -49,7 +45,7 @@ const ProjectSchema = new mongoose.Schema(
     projectStage: {
       type: String,
       enum: [
-        "Acknowledged",
+        "Acknowledgement",
         "Model/Quote sent",
         "Implementation",
         "Dropped",
@@ -58,7 +54,7 @@ const ProjectSchema = new mongoose.Schema(
         "In Discussion - Team",
         "Completed",
       ],
-      default: "Acknowledged",
+      default: "Acknowledgement",
     },
 
     status: {
@@ -67,7 +63,12 @@ const ProjectSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // Temporary testing assignment fields
+    // PM assignment fields
+    pmId: {
+      type: String,
+      trim: true,
+    },
+
     pmEmail: {
       type: String,
       trim: true,
@@ -80,6 +81,12 @@ const ProjectSchema = new mongoose.Schema(
     },
 
     pmInitials: {
+      type: String,
+      trim: true,
+    },
+
+    // TL assignment fields
+    tlId: {
       type: String,
       trim: true,
     },

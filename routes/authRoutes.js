@@ -180,6 +180,97 @@ router.post("/login", async (req, res) => {
 
     /*
     |--------------------------------------------------------------------------
+    | SUPER ADMIN LOGIN
+    |--------------------------------------------------------------------------
+    |
+    | Super Admin credentials come from .env.
+    |
+    */
+
+    const superAdminEmail = (
+      process.env.SUPER_ADMIN_EMAIL || ""
+    )
+      .trim()
+      .toLowerCase();
+
+    const superAdminPassword =
+      process.env.SUPER_ADMIN_PASSWORD || "";
+
+    if (
+      superAdminEmail &&
+      superAdminPassword &&
+      loginEmail === superAdminEmail
+    ) {
+      if (password !== superAdminPassword) {
+        return res.status(401).json({
+          success: false,
+          message: "Invalid email or password",
+        });
+      }
+
+      let superAdmin = await User.findOne({
+        email: superAdminEmail,
+      });
+
+      if (!superAdmin) {
+        const hashedPassword =
+          await bcrypt.hash(
+            superAdminPassword,
+            12
+          );
+
+        superAdmin = await User.create({
+          name: "METIS Super Admin",
+          email: superAdminEmail,
+          password: hashedPassword,
+          role: "super_admin",
+          active: true,
+        });
+      } else {
+        if (superAdmin.role !== "super_admin") {
+          return res.status(403).json({
+            success: false,
+            message:
+              "Configured Super Admin email belongs to another role",
+          });
+        }
+
+        if (superAdmin.active === false) {
+          return res.status(403).json({
+            success: false,
+            message: "Super Admin account is inactive",
+          });
+        }
+
+        const passwordMatches =
+          await bcrypt.compare(
+            superAdminPassword,
+            superAdmin.password
+          );
+
+        if (!passwordMatches) {
+          superAdmin.password =
+            await bcrypt.hash(
+              superAdminPassword,
+              12
+            );
+
+          await superAdmin.save();
+        }
+      }
+
+      const token = createToken(superAdmin);
+
+      return res.json({
+        success: true,
+        message: "Login successful",
+        token,
+        user: formatUser(superAdmin),
+      });
+    }
+
+    /*
+    |--------------------------------------------------------------------------
     | PM / TL LOGIN
     |--------------------------------------------------------------------------
     */

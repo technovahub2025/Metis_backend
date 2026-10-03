@@ -21,7 +21,6 @@ const router = express.Router();
 // ============================================================
 
 const TEMP_PROJECTS = [];
-
 // ============================================================
 // HELPERS
 // ============================================================
@@ -472,7 +471,7 @@ router.get(
 router.post(
   "/",
   authenticate,
-  authorize("admin"),
+  authorize("admin", "super_admin"),
   async (req, res) => {
     try {
       const {
@@ -567,7 +566,7 @@ router.post(
           emailStage || "",
 
         projectStage:
-          projectStage || "Planning",
+          projectStage || "Acknowledged",
 
         status:
           "Awaiting PM Review",
@@ -680,7 +679,7 @@ router.post(
 router.put(
   "/:id/assign-tl",
   authenticate,
-  authorize("admin", "pm"),
+  authorize("admin", "super_admin", "pm"),
   async (req, res) => {
     try {
       const {
@@ -1051,7 +1050,7 @@ router.put(
 router.delete(
   "/:id",
   authenticate,
-  authorize("admin"),
+  authorize("admin", "super_admin"),
   async (req, res) => {
     try {
       const index =
@@ -1093,3 +1092,4 @@ router.delete(
 );
 
 module.exports = router;
+

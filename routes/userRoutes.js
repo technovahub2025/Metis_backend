@@ -51,7 +51,7 @@ router.get("/", async (req, res) => {
     const filter = {};
 
     if (
-      ["admin", "pm", "tl"].includes(
+      ["admin", "pm", "tl", "super_admin"].includes(
         requestedRole
       )
     ) {
@@ -189,12 +189,12 @@ router.post("/", async (req, res) => {
      * Admin is managed separately.
      */
     if (
-      !["pm", "tl"].includes(role)
+      !["pm", "tl", "super_admin"].includes(role)
     ) {
       return res.status(400).json({
         success: false,
         message:
-          "Only PM and TL users can be created here",
+          "Only PM, TL and Super Admin users can be created here",
       });
     }
 
@@ -361,14 +361,13 @@ router.put("/:id", async (req, res) => {
      */
     if (role !== undefined) {
       if (
-        !["admin", "pm", "tl"].includes(
+        !["admin", "pm", "tl", "super_admin"].includes(
           role
         )
       ) {
         return res.status(400).json({
           success: false,
-          message:
-            "Invalid user role",
+          message: "Invalid user role",
         });
       }
 
@@ -465,11 +464,11 @@ router.delete("/:id", async (req, res) => {
      * Never allow Admin account to be
      * deleted from PM/TL management.
      */
-    if (user.role === "admin") {
+    if (user.role === "admin" || user.role === "super_admin") {
       return res.status(403).json({
         success: false,
         message:
-          "Admin accounts cannot be deleted here",
+          "Admin and Super Admin accounts cannot be deleted here",
       });
     }
 
