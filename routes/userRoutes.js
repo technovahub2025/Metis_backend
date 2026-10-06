@@ -2,6 +2,11 @@
 
 const User = require("../models/User");
 
+const {
+  authenticate,
+  authorize,
+} = require("../middleware/auth");
+
 const router = express.Router();
 
 /*
@@ -20,90 +25,123 @@ const router = express.Router();
 |
 */
 
-router.get("/", async (req, res) => {
-  try {
-    const limit = Math.min(
-      Number(req.query.limit) || 100,
-      500
-    );
+router.get(
+  "/",
+  authenticate,
+  async (req, res) => {
+    try {
+      const limit = Math.min(
+        Number(req.query.limit) || 100,
+        500
+      );
 
-    /*
-     * Optional role filter.
-     */
-    const requestedRole = String(
-      req.query.role || ""
-    )
-      .trim()
-      .toLowerCase();
-
-    /*
-     * Optional active filter.
-     */
-    const requestedActive = String(
-      req.query.active || ""
-    )
-      .trim()
-      .toLowerCase();
-
-    /*
-     * Build MongoDB filter dynamically.
-     */
-    const filter = {};
-
-    if (
-      ["admin", "pm", "tl", "super_admin"].includes(
-        requestedRole
+      /*
+       * Optional role filter.
+       */
+      const requestedRole = String(
+        req.query.role || ""
       )
-    ) {
-      filter.role = requestedRole;
+        .trim()
+        .toLowerCase();
+
+      /*
+       * Optional active filter.
+       */
+      const requestedActive = String(
+        req.query.active || ""
+      )
+        .trim()
+        .toLowerCase();
+
+      /*
+       * Build MongoDB filter dynamically.
+       */
+      const filter = {};
+
+      /*
+       * Admin context: can only see PM and TL users.
+       * Super Admin and Admin users are excluded.
+       *
+       * Super Admin context: sees all users.
+       */
+      if (
+        req.user.role === "admin"
+      ) {
+        if (
+          requestedRole === "pm" ||
+          requestedRole === "tl"
+        ) {
+          filter.role = requestedRole;
+        } else {
+          filter.role = {
+            $in: [
+              "pm",
+              "tl",
+            ],
+          };
+        }
+      } else {
+        if (
+          [
+            "admin",
+            "pm",
+            "tl",
+            "super_admin",
+          ].includes(requestedRole)
+        ) {
+          filter.role =
+            requestedRole;
+        }
+      }
+
+      if (
+        requestedActive === "true"
+      ) {
+        filter.active = true;
+      }
+
+      if (
+        requestedActive === "false"
+      ) {
+        filter.active = false;
+      }
+
+      const users = await User.find(filter)
+        .select("-password")
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+      const formattedUsers = users.map(
+        (user) => ({
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          active: user.active,
+          createdAt: user.createdAt,
+          updatedAt: user.updatedAt,
+        })
+      );
+
+      return res.json({
+        success: true,
+        users: formattedUsers,
+      });
+    } catch (error) {
+      console.error(
+        "Get users error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        message:
+          "Failed to load users",
+      });
     }
-
-    if (
-      requestedActive === "true"
-    ) {
-      filter.active = true;
-    }
-
-    if (
-      requestedActive === "false"
-    ) {
-      filter.active = false;
-    }
-
-    const users = await User.find(filter)
-      .select("-password")
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .lean();
-
-    const formattedUsers = users.map(
-      (user) => ({
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        active: user.active,
-        createdAt: user.createdAt,
-        updatedAt: user.updatedAt,
-      })
-    );
-
-    return res.json({
-      success: true,
-      users: formattedUsers,
-    });
-  } catch (error) {
-    console.error(
-      "Get users error:",
-      error
-    );
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to load users",
-    });
   }
-});
+);
 
 /*
 |--------------------------------------------------------------------------
@@ -156,47 +194,65 @@ router.get("/me", async (req, res) => {
 |
 */
 
-router.post("/", async (req, res) => {
-  try {
-    const {
-      name,
-      email,
-      password,
-      role,
-      active,
-    } = req.body;
+router.post(
+  "/",
+  authenticate,
+  async (req, res) => {
+    try {
+      const {
+        name,
+        email,
+        password,
+        role,
+        active,
+      } = req.body;
 
-    /*
-     * Validate required fields.
-     */
-    if (
-      !name ||
-      !email ||
-      !password ||
-      !role
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Name, email, password and role are required",
-      });
-    }
+      /*
+       * Validate required fields.
+       */
+      if (
+        !name ||
+        !email ||
+        !password ||
+        !role
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Name, email, password and role are required",
+        });
+      }
 
-    /*
-     * Only PM and TL accounts can be created
-     * through this management endpoint.
-     *
-     * Admin is managed separately.
-     */
-    if (
-      !["pm", "tl", "super_admin"].includes(role)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Only PM, TL and Super Admin users can be created here",
-      });
-    }
+      /*
+       * Admin context: can only create PM and TL accounts.
+       *
+       * Super Admin context: can create all roles.
+       */
+      if (
+        req.user.role === "admin"
+      ) {
+        if (
+          !["pm", "tl"].includes(role)
+        ) {
+          return res.status(403).json({
+            success: false,
+            message:
+              "Admins can only create PM and TL accounts",
+          });
+        }
+      } else {
+        if (
+          !["pm", "tl", "admin"].includes(role)
+        ) {
+          return res
+            .status(400)
+            .json({
+              success: false,
+              message:
+                "Only PM, TL and Admin users can be created here",
+            });
+        }
+      }
 
     /*
      * Normalize email.
@@ -292,7 +348,10 @@ router.post("/", async (req, res) => {
 |
 */
 
-router.put("/:id", async (req, res) => {
+router.put(
+  "/:id",
+  authenticate,
+  async (req, res) => {
   try {
     const user =
       await User.findById(
@@ -360,15 +419,39 @@ router.put("/:id", async (req, res) => {
      * Update role.
      */
     if (role !== undefined) {
+      /*
+       * Admin context: cannot set role to
+       * super_admin or admin.
+       *
+       * Super Admin context: can set any role.
+       */
       if (
-        !["admin", "pm", "tl", "super_admin"].includes(
-          role
-        )
+        req.user.role === "admin"
       ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid user role",
-        });
+        if (
+          !["pm", "tl"].includes(role)
+        ) {
+          return res.status(403).json({
+            success: false,
+            message:
+              "Admins can only set roles to PM or TL",
+          });
+        }
+      } else {
+        if (
+          ![
+            "admin",
+            "pm",
+            "tl",
+            "super_admin",
+          ].includes(role)
+        ) {
+          return res.status(400).json({
+            success: false,
+            message:
+              "Invalid user role",
+          });
+        }
       }
 
       user.role = role;
@@ -446,7 +529,10 @@ router.put("/:id", async (req, res) => {
 |--------------------------------------------------------------------------
 */
 
-router.delete("/:id", async (req, res) => {
+router.delete(
+  "/:id",
+  authenticate,
+  async (req, res) => {
   try {
     const user =
       await User.findById(

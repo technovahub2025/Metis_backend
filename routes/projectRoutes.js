@@ -7,20 +7,11 @@ const {
 } = require("../middleware/auth");
 
 const User = require("../models/User");
+const Project = require("../models/Project");
+const Notification = require("../models/Notification");
 
 const router = express.Router();
 
-// ============================================================
-// TEMPORARY IN-MEMORY PROJECT STORAGE
-// ============================================================
-//
-// Project data is still stored in memory during workflow testing.
-// User data is now read from MongoDB.
-//
-// Projects will remain available until the backend restarts.
-// ============================================================
-
-const TEMP_PROJECTS = [];
 // ============================================================
 // HELPERS
 // ============================================================
@@ -59,6 +50,11 @@ const shape = (project) => {
 
   return {
     ...project,
+
+    id: project.id ||
+      (project._id
+        ? String(project._id)
+        : undefined),
 
     ageDays: daysBetween(
       project.mailDate
@@ -159,14 +155,40 @@ const createInitials = (name) => {
 };
 
 // ============================================================
-// GET PROJECT INDEX
+// CREATE NOTIFICATION
 // ============================================================
 
-const getProjectIndex = (id) => {
-  return TEMP_PROJECTS.findIndex(
-    (project) =>
-      String(project.id) === String(id)
-  );
+const createNotification = async (
+  recipientId,
+  recipientRole,
+  senderId,
+  senderName,
+  type,
+  title,
+  message,
+  projectId
+) => {
+  try {
+    if (!recipientId) {
+      return null;
+    }
+
+    const notification =
+      await Notification.create({
+        recipient: recipientId,
+        recipientRole,
+        sender: senderId || null,
+        senderName: senderName || "",
+        type,
+        title,
+        message,
+        project: projectId,
+      });
+
+    return notification;
+  } catch (error) {
+    console.error("Create notification error:", error); throw error;
+  }
 };
 
 // ============================================================
@@ -195,128 +217,81 @@ router.get(
         search,
         limit = "100",
         page = "1",
+        emailStage,
       } = req.query;
 
-      let projects = [
-        ...TEMP_PROJECTS,
-      ];
-
       // --------------------------------------------------------
+      // BUILD MONGODB QUERY
+      // --------------------------------------------------------
+
+      const query = {};
+
       // ROLE-BASED ACCESS
-      // --------------------------------------------------------
-
       if (req.user.role === "pm") {
-        const pmEmail = String(
-          req.user.email || ""
-        )
+        query.pmEmail = String(req.user.email || "")
           .toLowerCase()
           .trim();
-
-        projects = projects.filter(
-          (project) =>
-            String(
-              project.pmEmail || ""
-            )
-              .toLowerCase()
-              .trim() === pmEmail
-        );
-      }
-
-      if (req.user.role === "tl") {
-        const tlEmail = String(
-          req.user.email || ""
-        )
+      } else if (req.user.role === "tl") {
+        query.tlEmail = String(req.user.email || "")
           .toLowerCase()
           .trim();
-
-        projects = projects.filter(
-          (project) =>
-            String(
-              project.tlEmail || ""
-            )
-              .toLowerCase()
-              .trim() === tlEmail
-        );
       }
 
-      // --------------------------------------------------------
       // FILTERS
-      // --------------------------------------------------------
-
       if (type) {
-        projects = projects.filter(
-          (project) =>
-            project.projectType === type
-        );
+        query.projectType = type;
       }
 
       if (stage) {
-        projects = projects.filter(
-          (project) =>
-            project.projectStage === stage
-        );
+        query.projectStage = stage;
       }
 
       if (status) {
-        projects = projects.filter(
-          (project) =>
-            project.status === status
-        );
+        query.status = status;
       }
 
-      // --------------------------------------------------------
-      // SEARCH
-      // --------------------------------------------------------
+      if (emailStage) {
+        query.emailStage = emailStage;
+      }
 
       if (search) {
-        const searchText =
-          String(search)
-            .toLowerCase()
-            .trim();
+        const searchText = String(search)
+          .toLowerCase()
+          .trim();
 
-        projects = projects.filter(
-          (project) =>
-            String(
-              project.projectName || ""
-            )
-              .toLowerCase()
-              .includes(searchText) ||
-            String(
-              project.projectCode || ""
-            )
-              .toLowerCase()
-              .includes(searchText) ||
-            String(
-              project.subject || ""
-            )
-              .toLowerCase()
-              .includes(searchText) ||
-            String(
-              project.pmName || ""
-            )
-              .toLowerCase()
-              .includes(searchText) ||
-            String(
-              project.tlName || ""
-            )
-              .toLowerCase()
-              .includes(searchText)
-        );
+        query.$or = [
+          {
+            projectName: {
+              $regex: searchText,
+              $options: "i",
+            },
+          },
+          {
+            projectCode: {
+              $regex: searchText,
+              $options: "i",
+            },
+          },
+          {
+            subject: {
+              $regex: searchText,
+              $options: "i",
+            },
+          },
+          {
+            pmName: {
+              $regex: searchText,
+              $options: "i",
+            },
+          },
+          {
+            tlName: {
+              $regex: searchText,
+              $options: "i",
+            },
+          },
+        ];
       }
-
-      // --------------------------------------------------------
-      // SORT
-      // --------------------------------------------------------
-
-      projects.sort(
-        (a, b) =>
-          new Date(
-            b.createdAt
-          ).getTime() -
-          new Date(
-            a.createdAt
-          ).getTime()
-      );
 
       // --------------------------------------------------------
       // PAGINATION
@@ -332,27 +307,28 @@ router.get(
         Number(limit) || 100
       );
 
-      const total =
-        projects.length;
-
       const skip =
-        (pageNumber - 1) *
-        limitNumber;
+        (pageNumber - 1) * limitNumber;
 
-      const paginatedProjects =
-        projects.slice(
-          skip,
-          skip + limitNumber
-        );
+      // --------------------------------------------------------
+      // QUERY MONGODB
+      // --------------------------------------------------------
+
+      const [projects, total] = await Promise.all([
+        Project.find(query)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limitNumber)
+          .lean({ virtuals: true }),
+        Project.countDocuments(query),
+      ]);
 
       return res.json({
         success: true,
         total,
         page: pageNumber,
         limit: limitNumber,
-        data: paginatedProjects.map(
-          shape
-        ),
+        data: projects.map(shape),
       });
     } catch (error) {
       console.error(
@@ -378,12 +354,30 @@ router.get(
   authenticate,
   async (req, res) => {
     try {
-      const project =
-        TEMP_PROJECTS.find(
-          (item) =>
-            String(item.id) ===
-            String(req.params.id)
-        );
+      const { id } = req.params;
+
+      let project = null;
+
+      // --------------------------------------------------------
+      // SUPPORT BOTH MongoDB ObjectId AND string id
+      // --------------------------------------------------------
+
+      if (
+        mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        project = await Project.findById(
+          id
+        ).lean({ virtuals: true });
+      }
+
+      // If not found by ObjectId, try string id match
+      if (!project) {
+        project = await Project.findOne({
+          id: String(id),
+        }).lean({ virtuals: true });
+      }
 
       if (!project) {
         return res.status(404).json({
@@ -402,9 +396,9 @@ router.get(
         String(project.pmEmail || "")
           .toLowerCase()
           .trim() !==
-          String(req.user.email || "")
-            .toLowerCase()
-            .trim()
+        String(req.user.email || "")
+          .toLowerCase()
+          .trim()
       ) {
         return res.status(403).json({
           success: false,
@@ -422,9 +416,9 @@ router.get(
         String(project.tlEmail || "")
           .toLowerCase()
           .trim() !==
-          String(req.user.email || "")
-            .toLowerCase()
-            .trim()
+        String(req.user.email || "")
+          .toLowerCase()
+          .trim()
       ) {
         return res.status(403).json({
           success: false,
@@ -477,6 +471,8 @@ router.post(
       const {
         subject,
         mailDate,
+        startDate,
+        endDate,
         projectName,
         projectCode,
         projectType,
@@ -532,17 +528,12 @@ router.post(
       }
 
       // --------------------------------------------------------
-      // CREATE PROJECT
+      // CREATE PROJECT IN MONGODB
       // --------------------------------------------------------
 
-      const now =
-        new Date().toISOString();
+      const now = new Date().toISOString();
 
-      const project = {
-        id: `project-${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}`,
-
+      const projectData = {
         subject:
           typeof subject === "string"
             ? subject.trim()
@@ -550,6 +541,12 @@ router.post(
 
         mailDate:
           mailDate || null,
+
+        startDate:
+          startDate || null,
+
+        endDate:
+          endDate || null,
 
         projectName:
           String(projectName).trim(),
@@ -571,10 +568,7 @@ router.post(
         status:
           "Awaiting PM Review",
 
-        // ------------------------------------------------------
         // PM
-        // ------------------------------------------------------
-
         pmId:
           selectedPM?._id
             ? String(selectedPM._id)
@@ -593,10 +587,7 @@ router.post(
               )
             : "",
 
-        // ------------------------------------------------------
         // TL
-        // ------------------------------------------------------
-
         tlId: "",
         tlEmail: "",
         tlName: "",
@@ -604,10 +595,7 @@ router.post(
         assignedTL: "",
         assignedDate: null,
 
-        // ------------------------------------------------------
-        // DETAILS
-        // ------------------------------------------------------
-
+        // Details
         location:
           typeof location === "string"
             ? location.trim()
@@ -628,25 +616,69 @@ router.post(
             ? delegationNote.trim()
             : "",
 
-        lastActivity: now,
+        lastActivity: new Date(now),
 
-        createdAt: now,
-        updatedAt: now,
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
       };
 
-      TEMP_PROJECTS.push(project);
+      const createdProject =
+        await Project.create(
+          projectData
+        );
+
+      const populatedProject =
+        await Project.findById(
+          createdProject._id
+        ).lean({ virtuals: true });
+
+      // --------------------------------------------------------
+      // CREATE NOTIFICATION FOR PM IF ASSIGNED
+      // --------------------------------------------------------
+
+      if (
+        selectedPM &&
+        String(selectedPM._id) !==
+          String(req.user.id)
+      ) {
+        await createNotification(
+          String(selectedPM._id),
+          "pm",
+          req.user.id,
+          req.user.name ||
+            req.user.email,
+          "project_assigned",
+          "New Project Assignment",
+          `You have been assigned to project: ${
+            populatedProject.projectName
+          }`,
+          createdProject._id
+        );
+      }
 
       return res.status(201).json({
         success: true,
         message:
           "Project created successfully",
-        data: shape(project),
+        data: shape(populatedProject),
       });
     } catch (error) {
       console.error(
         "Create project error:",
         error
       );
+
+      if (
+        error.name ===
+        "ValidationError"
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            error.message ||
+            "Failed to create project",
+        });
+      }
 
       return res.status(400).json({
         success: false,
@@ -694,12 +726,25 @@ router.put(
       // FIND PROJECT
       // --------------------------------------------------------
 
-      const project =
-        TEMP_PROJECTS.find(
-          (item) =>
-            String(item.id) ===
-            String(req.params.id)
+      const { id } = req.params;
+
+      let project = null;
+
+      if (
+        mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        project = await Project.findById(
+          id
         );
+      }
+
+      if (!project) {
+        project = await Project.findOne({
+          id: String(id),
+        });
+      }
 
       if (!project) {
         return res.status(404).json({
@@ -718,9 +763,9 @@ router.put(
         String(project.pmEmail || "")
           .toLowerCase()
           .trim() !==
-          String(req.user.email || "")
-            .toLowerCase()
-            .trim()
+        String(req.user.email || "")
+          .toLowerCase()
+          .trim()
       ) {
         return res.status(403).json({
           success: false,
@@ -778,23 +823,25 @@ router.put(
         selectedTL.name || "";
 
       project.assignedDate =
-        new Date().toISOString();
+        new Date();
 
       project.lastActivity =
-        new Date().toISOString();
+        new Date();
 
       project.updatedAt =
-        new Date().toISOString();
+        new Date();
 
       project.assignmentPriority =
         assignmentPriority ||
+        project.assignmentPriority ||
         "Normal";
 
       project.delegationNote =
         typeof delegationNote ===
         "string"
           ? delegationNote.trim()
-          : "";
+          : project.delegationNote ||
+            "";
 
       // --------------------------------------------------------
       // STATUS
@@ -809,11 +856,41 @@ router.put(
           "In Progress";
       }
 
+      await project.save();
+
+      const updated = await Project.findById(
+        project._id
+      ).lean({ virtuals: true });
+
+      // --------------------------------------------------------
+      // CREATE NOTIFICATION FOR TL
+      // --------------------------------------------------------
+
+      if (
+        selectedTL &&
+        String(selectedTL._id) !==
+          String(req.user.id)
+      ) {
+        await createNotification(
+          String(selectedTL._id),
+          "tl",
+          req.user.id,
+          req.user.name ||
+            req.user.email,
+          "project_assigned",
+          "New Project Assignment",
+          `You have been assigned to project: ${
+            updated.projectName
+          }`,
+          project._id
+        );
+      }
+
       return res.json({
         success: true,
         message:
           "TL assigned successfully",
-        data: shape(project),
+        data: shape(updated),
       });
     } catch (error) {
       console.error(
@@ -850,12 +927,25 @@ router.put(
   authenticate,
   async (req, res) => {
     try {
-      const project =
-        TEMP_PROJECTS.find(
-          (item) =>
-            String(item.id) ===
-            String(req.params.id)
+      const { id } = req.params;
+
+      let project = null;
+
+      if (
+        mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        project = await Project.findById(
+          id
         );
+      }
+
+      if (!project) {
+        project = await Project.findOne({
+          id: String(id),
+        });
+      }
 
       if (!project) {
         return res.status(404).json({
@@ -874,9 +964,9 @@ router.put(
         String(project.pmEmail || "")
           .toLowerCase()
           .trim() !==
-          String(req.user.email || "")
-            .toLowerCase()
-            .trim()
+        String(req.user.email || "")
+          .toLowerCase()
+          .trim()
       ) {
         return res.status(403).json({
           success: false,
@@ -890,9 +980,9 @@ router.put(
         String(project.tlEmail || "")
           .toLowerCase()
           .trim() !==
-          String(req.user.email || "")
-            .toLowerCase()
-            .trim()
+        String(req.user.email || "")
+          .toLowerCase()
+          .trim()
       ) {
         return res.status(403).json({
           success: false,
@@ -913,6 +1003,8 @@ router.put(
       // RESOLVE PM ASSIGNMENT
       // --------------------------------------------------------
 
+      let newPM = null;
+
       if (Object.prototype.hasOwnProperty.call(update, "pm")) {
         if (update.pm) {
           const selectedPM = await findUserByIdOrEmail(
@@ -923,9 +1015,12 @@ router.put(
           if (!selectedPM) {
             return res.status(400).json({
               success: false,
-              message: "PM not found or inactive",
+              message:
+                "PM not found or inactive",
             });
           }
+
+          newPM = selectedPM;
 
           update.pmId = String(selectedPM._id);
           update.pmEmail = selectedPM.email || "";
@@ -1000,29 +1095,65 @@ router.put(
       // APPLY UPDATE
       // --------------------------------------------------------
 
-      Object.keys(update).forEach(
+      const now = new Date();
+
+      const updateFields = {
+        ...update,
+        lastActivity: now,
+      };
+
+      Object.keys(updateFields).forEach(
         (key) => {
           if (
+            key !== "_id" &&
             key !== "id" &&
-            key !== "createdAt"
+            key !== "createdAt" &&
+            key !== "updatedAt" &&
+            key !== "__v"
           ) {
             project[key] =
-              update[key];
+              updateFields[key];
           }
         }
       );
 
-      project.lastActivity =
-        new Date().toISOString();
+      project.updatedAt = now;
 
-      project.updatedAt =
-        new Date().toISOString();
+      await project.save();
+
+      const updated = await Project.findById(
+        project._id
+      ).lean({ virtuals: true });
+
+      // --------------------------------------------------------
+      // CREATE NOTIFICATION IF PM CHANGED
+      // --------------------------------------------------------
+
+      if (
+        newPM &&
+        String(newPM._id) !==
+          String(req.user.id)
+      ) {
+        await createNotification(
+          String(newPM._id),
+          "pm",
+          req.user.id,
+          req.user.name ||
+            req.user.email,
+          "project_assigned",
+          "New Project Assignment",
+          `You have been assigned to project: ${
+            updated.projectName
+          }`,
+          project._id
+        );
+      }
 
       return res.json({
         success: true,
         message:
           "Project updated successfully",
-        data: shape(project),
+        data: shape(updated),
       });
     } catch (error) {
       console.error(
@@ -1053,23 +1184,35 @@ router.delete(
   authorize("admin", "super_admin"),
   async (req, res) => {
     try {
-      const index =
-        getProjectIndex(
-          req.params.id
-        );
+      const { id } = req.params;
 
-      if (index === -1) {
+      let deletedProject = null;
+
+      if (
+        mongoose.Types.ObjectId.isValid(
+          id
+        )
+      ) {
+        deletedProject =
+          await Project.findByIdAndDelete(
+            id
+          );
+      }
+
+      if (!deletedProject) {
+        deletedProject =
+          await Project.findOneAndDelete({
+            id: String(id),
+          });
+      }
+
+      if (!deletedProject) {
         return res.status(404).json({
           success: false,
           message:
             "Project not found",
         });
       }
-
-      TEMP_PROJECTS.splice(
-        index,
-        1
-      );
 
       return res.json({
         success: true,
@@ -1092,4 +1235,5 @@ router.delete(
 );
 
 module.exports = router;
+
 

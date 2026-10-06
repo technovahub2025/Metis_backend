@@ -29,6 +29,14 @@ const ProjectSchema = new mongoose.Schema(
       type: Date,
     },
 
+    startDate: {
+      type: Date,
+    },
+
+    endDate: {
+      type: Date,
+    },
+
     emailStage: {
       type: String,
       enum: [
@@ -45,7 +53,7 @@ const ProjectSchema = new mongoose.Schema(
     projectStage: {
       type: String,
       enum: [
-        "Acknowledgement",
+        "Acknowledged",
         "Model/Quote sent",
         "Implementation",
         "Dropped",
@@ -54,7 +62,7 @@ const ProjectSchema = new mongoose.Schema(
         "In Discussion - Team",
         "Completed",
       ],
-      default: "Acknowledgement",
+      default: "Acknowledged",
     },
 
     status: {
@@ -145,5 +153,13 @@ const ProjectSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Expose _id as id for frontend compatibility
+ProjectSchema.virtual("id").get(function () {
+  return this._id ? this._id.toString() : undefined;
+});
+
+ProjectSchema.set("toJSON", { virtuals: true });
+ProjectSchema.set("toObject", { virtuals: true });
 
 module.exports = mongoose.model("Project", ProjectSchema);

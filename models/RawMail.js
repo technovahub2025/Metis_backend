@@ -49,10 +49,10 @@ const RawMailSchema = new mongoose.Schema(
     projectType: {
       type: String,
       enum: [
-        "Residential",
-        "Commercial",
-        "Industrial",
-        "Infrastructure",
+        "RCC",
+        "Steel",
+        "Outsource",
+        "PMC",
       ],
       trim: true,
     },
