@@ -150,22 +150,6 @@ router.post("/login", async (req, res) => {
          *
          * This keeps the database consistent.
          */
-
-        const passwordMatches =
-          await bcrypt.compare(
-            adminPassword,
-            admin.password
-          );
-
-        if (!passwordMatches) {
-          admin.password =
-            await bcrypt.hash(
-              adminPassword,
-              12
-            );
-
-          await admin.save();
-        }
       }
 
       const token = createToken(admin);
@@ -240,22 +224,6 @@ router.post("/login", async (req, res) => {
             success: false,
             message: "Super Admin account is inactive",
           });
-        }
-
-        const passwordMatches =
-          await bcrypt.compare(
-            superAdminPassword,
-            superAdmin.password
-          );
-
-        if (!passwordMatches) {
-          superAdmin.password =
-            await bcrypt.hash(
-              superAdminPassword,
-              12
-            );
-
-          await superAdmin.save();
         }
       }
 
